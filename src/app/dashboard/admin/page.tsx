@@ -54,9 +54,27 @@ export default function AdminPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const { user } = useAuth();
+  const { user, allUsers } = useAuth();
 
-  const filteredUsers = demoUsers.filter((u) => {
+  // Merge real registered users into the table
+  const realUserRows = allUsers
+    .filter((u) => !demoUsers.some((d) => d.email === u.email))
+    .map((u) => ({
+      id: u.id,
+      name: u.full_name,
+      email: u.email,
+      role: u.role,
+      status: "active" as const,
+      projects: 0,
+      credits: 0,
+      lastActive: "Just now",
+      joined: new Date(u.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      avatar: u.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2),
+    }));
+
+  const allTableUsers = [...realUserRows, ...demoUsers];
+
+  const filteredUsers = allTableUsers.filter((u) => {
     const matchSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchRole = roleFilter === "all" || u.role === roleFilter;
     const matchStatus = statusFilter === "all" || u.status === statusFilter;

@@ -1,8 +1,6 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import type { User, Session } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "user";
 
@@ -17,145 +15,291 @@ export interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null;
-  session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, fullName: string, role: UserRole) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
+  allUsers: UserProfile[];
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
   loading: true,
   signIn: async () => ({}),
   signUp: async () => ({}),
   signOut: async () => {},
   isAdmin: false,
+  allUsers: [],
 });
 
-function extractProfile(supabaseUser: User): UserProfile {
-  const meta = supabaseUser.user_metadata || {};
-  return {
-    id: supabaseUser.id,
-    email: supabaseUser.email || "",
-    full_name: meta.full_name || meta.name || supabaseUser.email?.split("@")[0] || "User",
-    role: (meta.role as UserRole) || "user",
-    avatar_url: meta.avatar_url || undefined,
-    created_at: supabaseUser.created_at,
-  };
+// ─── Local Storage Helpers ─────────────────────────────────────────────────────
+const USERS_KEY = "carbonrush_users";
+const SESSION_KEY = "carbonrush_session";
+
+interface StoredUser {
+  id: string;
+  email: string;
+  password: string;
+  full_name: string;
+  role: UserRole;
+  created_at: string;
 }
 
+function getStoredUsers(): StoredUser[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(USERS_KEY);
+    if (!raw) {
+      // Seed with default admin and user accounts
+      const defaults: StoredUser[] = [
+        {
+          id: "admin-001",
+          email: "admin@carbonrush.ai",
+          password: "admin123",
+          full_name: "Admin",
+          role: "admin",
+          created_at: "2024-01-01T00:00:00Z",
+        },
+        {
+          id: "user-001",
+          email: "user@carbonrush.ai",
+          password: "user123",
+          full_name: "Demo User",
+          role: "user",
+          created_at: "2024-01-15T00:00:00Z",
+        },
+      ];
+      localStorage.setItem(USERS_KEY, JSON.stringify(defaults));
+      return defaults;
+    }
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredUsers(users: StoredUser[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function getSession(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SESSION_KEY);
+}
+
+function saveSession(userId: string) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SESSION_KEY, userId);
+}
+
+function clearSession() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function generateId(): string {
+  return "user-" + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+// ─── Supabase Helper (optional, tries Supabase first) ─────────────────────────
+async function trySupabaseSignUp(
+  email: string,
+  password: string,
+  fullName: string,
+  role: UserRole
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { supabase } = await import("@/lib/supabase");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: fullName, role } },
+    });
+    if (error) return { success: false, error: error.message };
+    if (data.user) return { success: true };
+    return { success: false, error: "Unknown error" };
+  } catch {
+    return { success: false, error: "Supabase unavailable" };
+  }
+}
+
+async function trySupabaseSignIn(
+  email: string,
+  password: string
+): Promise<{ success: boolean; error?: string; user?: { id: string; email: string; full_name: string; role: UserRole } }> {
+  try {
+    const { supabase } = await import("@/lib/supabase");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { success: false, error: error.message };
+    if (data.user) {
+      const meta = data.user.user_metadata || {};
+      return {
+        success: true,
+        user: {
+          id: data.user.id,
+          email: data.user.email || email,
+          full_name: meta.full_name || email.split("@")[0],
+          role: meta.role || "user",
+        },
+      };
+    }
+    return { success: false, error: "Unknown error" };
+  } catch {
+    return { success: false, error: "Supabase unavailable" };
+  }
+}
+
+// ─── Auth Provider ────────────────────────────────────────────────────────────
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
 
-  const handleSession = useCallback((sess: Session | null) => {
-    setSession(sess);
-    if (sess?.user) {
-      setUser(extractProfile(sess.user));
-    } else {
-      setUser(null);
+  // Load session on mount
+  useEffect(() => {
+    const sessionUserId = getSession();
+    if (sessionUserId) {
+      const users = getStoredUsers();
+      const found = users.find((u) => u.id === sessionUserId);
+      if (found) {
+        setUser({
+          id: found.id,
+          email: found.email,
+          full_name: found.full_name,
+          role: found.role,
+          created_at: found.created_at,
+        });
+      }
     }
+    // Load all users for admin panel
+    const users = getStoredUsers();
+    setAllUsers(users.map((u) => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, created_at: u.created_at })));
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: sess } }) => {
-      handleSession(sess);
-    });
+  const signIn = useCallback(async (email: string, password: string): Promise<{ error?: string }> => {
+    // First try local storage
+    const users = getStoredUsers();
+    const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
 
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, sess) => {
-        handleSession(sess);
-      }
-    );
+    if (found) {
+      const profile: UserProfile = {
+        id: found.id,
+        email: found.email,
+        full_name: found.full_name,
+        role: found.role,
+        created_at: found.created_at,
+      };
+      setUser(profile);
+      saveSession(found.id);
 
-    return () => subscription.unsubscribe();
-  }, [handleSession]);
+      // Also try Supabase in background (don't block)
+      trySupabaseSignIn(email, password).catch(() => {});
 
-  const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        // If Supabase returns "Invalid login credentials", provide a clearer message
-        if (error.message.includes("Invalid login")) {
-          return { error: "Invalid email or password. Please sign up first if you don't have an account." };
-        }
-        return { error: error.message };
-      }
-
-      if (data.user) {
-        setUser(extractProfile(data.user));
-        setSession(data.session);
-      }
       return {};
-    } catch (err) {
-      return { error: "Connection failed. Please check your internet and try again." };
     }
-  };
 
-  const signUp = async (
+    // Try Supabase as fallback
+    const result = await trySupabaseSignIn(email, password);
+    if (result.success && result.user) {
+      // Save to local storage too
+      const newUser: StoredUser = {
+        id: result.user.id,
+        email: result.user.email,
+        password: password,
+        full_name: result.user.full_name,
+        role: result.user.role,
+        created_at: new Date().toISOString(),
+      };
+      const updated = [...users, newUser];
+      saveStoredUsers(updated);
+      setAllUsers(updated.map((u) => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, created_at: u.created_at })));
+
+      const profile: UserProfile = {
+        id: newUser.id,
+        email: newUser.email,
+        full_name: newUser.full_name,
+        role: newUser.role,
+        created_at: newUser.created_at,
+      };
+      setUser(profile);
+      saveSession(newUser.id);
+      return {};
+    }
+
+    return { error: "Invalid email or password. Please check your credentials or sign up first." };
+  }, []);
+
+  const signUp = useCallback(async (
     email: string,
     password: string,
     fullName: string,
     role: UserRole
   ): Promise<{ error?: string }> => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-            role: role,
-          },
-        },
-      });
+    const users = getStoredUsers();
 
-      if (error) {
-        if (error.message.includes("already registered")) {
-          return { error: "This email is already registered. Please sign in instead." };
-        }
-        return { error: error.message };
-      }
-
-      // If email confirmation is disabled, user is logged in immediately
-      if (data.user && data.session) {
-        setUser(extractProfile(data.user));
-        setSession(data.session);
-      }
-
-      return {};
-    } catch (err) {
-      return { error: "Sign up failed. Please try again." };
+    // Check if email already exists
+    if (users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
+      return { error: "This email is already registered. Please sign in instead." };
     }
-  };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+    if (password.length < 6) {
+      return { error: "Password must be at least 6 characters." };
+    }
+
+    // Create user locally
+    const newUser: StoredUser = {
+      id: generateId(),
+      email: email.toLowerCase(),
+      password: password,
+      full_name: fullName,
+      role: role,
+      created_at: new Date().toISOString(),
+    };
+
+    const updated = [...users, newUser];
+    saveStoredUsers(updated);
+    setAllUsers(updated.map((u) => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, created_at: u.created_at })));
+
+    // Set as current user
+    const profile: UserProfile = {
+      id: newUser.id,
+      email: newUser.email,
+      full_name: newUser.full_name,
+      role: newUser.role,
+      created_at: newUser.created_at,
+    };
+    setUser(profile);
+    saveSession(newUser.id);
+
+    // Also try Supabase in background (don't block)
+    trySupabaseSignUp(email, password, fullName, role).catch(() => {});
+
+    return {};
+  }, []);
+
+  const signOut = useCallback(async () => {
     setUser(null);
-    setSession(null);
-  };
+    clearSession();
+    // Also try Supabase signout in background
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      supabase.auth.signOut().catch(() => {});
+    } catch {}
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        session,
         loading,
         signIn,
         signUp,
         signOut,
         isAdmin: user?.role === "admin",
+        allUsers,
       }}
     >
       {children}
