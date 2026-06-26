@@ -63,23 +63,50 @@ export default function MyBookedProjectsPage() {
 
   const handleAction = async (assignmentId: string, action: 'completed' | 'disputed') => {
     try {
-      const { error } = await supabase
-        .from('verification_assignments')
-        .update({ status: action })
-        .eq('id', assignmentId);
-      
-      if (error) throw error;
-
       if (action === 'completed') {
-        alert("Report Accepted! Carbon Credits are being minted and payouts processed.");
+        const assignment = assignments.find(a => a.id === assignmentId);
+        if (!assignment) return;    
+        
+        const listing = assignment.land_listings;
+        const ngo = assignment.ngo_profiles;
+        const report = assignment.verification_reports?.[0];
+      
+        if (!listing || !ngo) {
+          alert("Error: Listing or NGO profile details are missing.");
+          return;
+        }
+
+        const credits = report?.carbon_estimate_tons || listing?.estimated_carbon_tons || 100;
+        const pricePerCredit = 50000; // ₹250 per ton
+        const verificationFee = 25000; // ₹25,000 flat NGO fee
+
+        // Call the database function (RPC)
+        const { error: rpcError } = await supabase.rpc("complete_verification_payout", {
+          p_assignment_id: assignment.id,
+          p_buyer_id: user!.id,
+          p_grower_id: listing.grower_id,
+          p_ngo_id: ngo.user_id, // NGO's auth user_id
+          p_credits: parseFloat(credits),
+          p_price_per_credit: pricePerCredit,
+          p_verification_fee: verificationFee
+        });
+
+        if (rpcError) throw rpcError;
+        alert("Report Accepted! Carbon Credits have been transferred transactionally, NGO fee paid, and Grower credited.");
       } else {
+        const { error } = await supabase
+          .from('verification_assignments')
+          .update({ status: action })
+          .eq('id', assignmentId);
+        
+        if (error) throw error;
         alert("Report Disputed. The platform administrators will review the case.");
       }
       
       fetchAssignments();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Action failed", err);
-      alert("Failed to process action.");
+      alert(err.message || "Failed to process action.");
     }
   };
 

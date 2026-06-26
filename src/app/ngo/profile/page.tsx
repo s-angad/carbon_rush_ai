@@ -94,6 +94,7 @@ export default function NgoProfilePage() {
         contact_email: email,
         contact_phone: phone,
         website_url: website,
+        is_platform_approved: true,
       };
 
       let error;

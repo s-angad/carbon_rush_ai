@@ -19,7 +19,8 @@ import {
   Search,
   UserCircle,
   MapPin,
-  XCircle
+  XCircle,
+  AlertTriangle
 } from "lucide-react";
 import { useState, ReactNode, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
@@ -38,7 +39,7 @@ function GrowerContent({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<{message: string, visible: boolean} | null>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const { user, signOut, loading } = useAuth();
+  const { user, signOut, loading, dbMissing } = useAuth();
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "grower")) {
@@ -183,6 +184,17 @@ function GrowerContent({ children }: { children: ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-y-auto">
+          {dbMissing && (
+            <div className="bg-amber-50 border-b border-amber-200 px-6 py-4 flex items-start gap-3 shadow-sm">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-semibold text-amber-900">Database Schema Missing</h4>
+                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                  The application is successfully connected to Supabase, but the database tables could not be found. Please copy the contents of <code>supabase-schema.sql</code> and execute it in the <strong>SQL Editor</strong> of your Supabase Dashboard to initialize the tables.
+                </p>
+              </div>
+            </div>
+          )}
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
             {children}
           </motion.div>

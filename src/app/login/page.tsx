@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Leaf, Mail, Lock, Eye, EyeOff, ArrowRight, User, Loader2, CheckCircle2, Building2, TreePine, ShieldCheck } from "lucide-react";
+import { Leaf, Mail, Lock, Eye, EyeOff, ArrowRight, User, Loader2, CheckCircle2, Building2, TreePine, ShieldCheck, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { AuthProvider, useAuth, UserRole } from "@/lib/auth";
 
@@ -17,7 +17,7 @@ function LoginForm() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, dbMissing } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,14 +139,28 @@ function LoginForm() {
             {isLogin ? "Sign in to access your dashboard" : "Join CarbonRush — choose your role below"}
           </p>
 
+          {dbMissing && (
+            <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200">
+              <div className="flex gap-2 animate-pulse">
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-semibold text-amber-900">Database Schema Missing</h4>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    The application is successfully connected to Supabase, but the database tables could not be found. Please copy the contents of <code>supabase-schema.sql</code> and execute it in the <strong>SQL Editor</strong> of your Supabase Dashboard to initialize the tables.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Demo credentials info */}
           {isLogin && (
             <div className="mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
               <p className="text-sm font-medium text-emerald-800 mb-2">🔑 Demo Accounts</p>
               <div className="space-y-1">
-                <p className="text-xs text-emerald-700"><strong>Buyer:</strong> buyer@carbonrush.ai / buyer123</p>
-                <p className="text-xs text-emerald-700"><strong>Grower:</strong> grower@carbonrush.ai / grower123</p>
-                <p className="text-xs text-emerald-700"><strong>NGO Verifier:</strong> ngo@carbonrush.ai / ngo123</p>
+                <p className="text-xs text-emerald-700"><strong>Buyer:</strong> b1@buy.com / buyer1</p>
+                <p className="text-xs text-emerald-700"><strong>Grower:</strong> g1@grow.com / grower1</p>
+                <p className="text-xs text-emerald-700"><strong>NGO Verifier:</strong> n1@ngo.com / ngo123</p>
               </div>
             </div>
           )}

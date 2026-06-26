@@ -11,16 +11,20 @@
     role: UserRole;
     organization_name?: string;
     avatar_url?: string;
+    carbon_balance: number;
+    fiat_balance: number;
     created_at: string;
   }
 
   interface AuthContextType {
     user: UserProfile | null;
     loading: boolean;
+    dbMissing: boolean;
     signIn: (email: string, password: string) => Promise<{ error?: string }>;
     signUp: (email: string, password: string, fullName: string, role: UserRole) => Promise<{ error?: string }>;
     signOut: () => Promise<void>;
     updateRole: (role: UserRole) => Promise<void>;
+    reloadBalance: () => Promise<void>;
     isBuyer: boolean;
     isGrower: boolean;
     isNgoVerifier: boolean;
@@ -30,10 +34,12 @@
   const AuthContext = createContext<AuthContextType>({
     user: null,
     loading: true,
+    dbMissing: false,
     signIn: async () => ({}),
     signUp: async () => ({}),
     signOut: async () => {},
     updateRole: async () => {},
+    reloadBalance: async () => {},
     isBuyer: false,
     isGrower: false,
     isNgoVerifier: false,
@@ -76,56 +82,133 @@
   export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [dbMissing, setDbMissing] = useState(false);
     
-useEffect(() => {
-  let subscription: any;
-
-  const getCurrentUser = async () => {
-    const { supabase } = await import("@/lib/supabase");
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.user) {
-      const meta = session.user.user_metadata || {};
-
-      setUser({
-        id: session.user.id,
-        email: session.user.email || "",
-        full_name: meta.full_name || "",
-        role: meta.role || "grower",
-        created_at: session.user.created_at,
-      });
-    }
-
-    setLoading(false);
-
-    const authListener = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        const meta = session.user.user_metadata || {};
-
-        setUser({
-          id: session.user.id,
-          email: session.user.email || "",
-          full_name: meta.full_name || "",
-          role: meta.role || "grower",
-          created_at: session.user.created_at,
-        });
-      } else {
-        setUser(null);
+    const fetchProfile = async (uid: string) => {
+      const { supabase } = await import("@/lib/supabase");
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", uid)
+          .single();
+        if (error) {
+          if (error.code === "PGRST205") {
+            setDbMissing(true);
+          }
+          throw error;
+        }
+        if (data) return data;
+      } catch (e) {
+        console.warn("Could not fetch profile:", e);
       }
-    });
+      return null;
+    };
 
-    subscription = authListener.data.subscription;
-  };
+    const reloadBalance = useCallback(async () => {
+      if (!user) return;
+      const profile = await fetchProfile(user.id);
+      if (profile) {
+        setUser(prev => prev ? {
+          ...prev,
+          carbon_balance: profile.carbon_balance || 0,
+          fiat_balance: profile.fiat_balance || 0,
+          organization_name: profile.organization_name || "",
+          full_name: profile.full_name || prev.full_name
+        } : null);
+      }
+    }, [user]);
 
-  getCurrentUser();
+    useEffect(() => {
+      let subscription: any;
 
-  return () => {
-    subscription?.unsubscribe();
-  };
-}, []); // ✅ useEffect ends here
+      const checkDb = async () => {
+        const { supabase } = await import("@/lib/supabase");
+        try {
+          // First check if the profiles table is queryable (meaning DB is already initialized)
+          const { error } = await supabase.from("profiles").select("id").limit(1);
+          
+          if (error && error.code === "PGRST205") {
+            console.log("Database schema missing. Attempting runtime auto-initialization...");
+            setDbMissing(true);
+            
+            // Auto-run the database migrations at runtime
+            const res = await fetch("/api/db-init");
+            const resData = await res.json();
+            
+            if (resData.success) {
+              const { error: retryError } = await supabase.from("profiles").select("id").limit(1);
+              if (!retryError) {
+                setDbMissing(false);
+                console.log("Database schema initialized successfully!");
+              }
+            }
+          } else {
+            setDbMissing(false);
+          }
+        } catch (e) {
+          console.warn("DB check failed", e);
+        }
+      };
+
+      const getCurrentUser = async () => {
+        const { supabase } = await import("@/lib/supabase");
+
+        await checkDb();
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          const meta = session.user.user_metadata || {};
+          const profile = await fetchProfile(session.user.id);
+
+          setUser({
+            id: session.user.id,
+            email: session.user.email || "",
+            full_name: meta.full_name || profile?.full_name || "",
+            role: meta.role || profile?.role || "grower",
+            organization_name: profile?.organization_name || "",
+            avatar_url: profile?.avatar_url || "",
+            carbon_balance: profile?.carbon_balance || 0,
+            fiat_balance: profile?.fiat_balance || 0,
+            created_at: session.user.created_at,
+          });
+        }
+
+        setLoading(false);
+
+        const authListener = supabase.auth.onAuthStateChange(async (_event, session) => {
+          if (session?.user) {
+            const meta = session.user.user_metadata || {};
+            const profile = await fetchProfile(session.user.id);
+
+            setUser({
+              id: session.user.id,
+              email: session.user.email || "",
+              full_name: meta.full_name || profile?.full_name || "",
+              role: meta.role || profile?.role || "grower",
+              organization_name: profile?.organization_name || "",
+              avatar_url: profile?.avatar_url || "",
+              carbon_balance: profile?.carbon_balance || 0,
+              fiat_balance: profile?.fiat_balance || 0,
+              created_at: session.user.created_at,
+            });
+          } else {
+            setUser(null);
+          }
+        });
+
+        subscription = authListener.data.subscription;
+      };
+
+      getCurrentUser();
+
+      return () => {
+        subscription?.unsubscribe();
+      };
+    }, []); // ✅ useEffect ends here
 
 
 
@@ -146,12 +229,17 @@ useEffect(() => {
       }
 
       const meta = data.user.user_metadata || {};
+      const profile = await fetchProfile(data.user.id);
 
       setUser({
         id: data.user.id,
         email: data.user.email || "",
-        full_name: meta.full_name || "",
-        role: meta.role || "grower",
+        full_name: meta.full_name || profile?.full_name || "",
+        role: meta.role || profile?.role || "grower",
+        organization_name: profile?.organization_name || "",
+        avatar_url: profile?.avatar_url || "",
+        carbon_balance: profile?.carbon_balance || 0,
+        fiat_balance: profile?.fiat_balance || 0,
         created_at: data.user.created_at,
       });
 
@@ -182,11 +270,23 @@ useEffect(() => {
       return { error: "Unable to create account." };
     }
 
+    // Fetch profile, retrying up to 5 times with a tiny 100ms delay only if it is not immediately found (to be resilient)
+    let profile = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      profile = await fetchProfile(data.user.id);
+      if (profile) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
     setUser({
       id: data.user.id,
       email: data.user.email || email,
       full_name: fullName,
       role,
+      organization_name: profile?.organization_name || "",
+      avatar_url: profile?.avatar_url || "",
+      carbon_balance: profile?.carbon_balance || 0,
+      fiat_balance: profile?.fiat_balance || 0,
       created_at: data.user.created_at,
     });
 
@@ -217,10 +317,12 @@ useEffect(() => {
         value={{
           user,
           loading,
+          dbMissing,
           signIn,
           signUp,
           signOut,
           updateRole,
+          reloadBalance,
           isBuyer: user?.role === "buyer",
           isGrower: user?.role === "grower",
           isNgoVerifier: user?.role === "ngo_verifier",

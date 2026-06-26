@@ -51,7 +51,7 @@ export default function BuyerMarketplacePage() {
         .from('land_listings')
         .select(`
           *,
-          profiles:grower_id (full_name)
+          profiles!grower_id (full_name)
         `)
         .eq('status', 'listed');
 
@@ -66,8 +66,8 @@ export default function BuyerMarketplacePage() {
       
       if (nError) throw nError;
       setNgos(ngoData || []);
-    } catch (err) {
-      console.error("Failed to load marketplace", err);
+    } catch (err: any) {
+      console.error("Failed to load marketplace:", err?.message || err?.details || err);
     } finally {
       setLoading(false);
     }

@@ -48,7 +48,7 @@ export default function NgoAssignmentsPage() {
         .select(`
           *,
           land_listings (*),
-          profiles:company_id (organization_name),
+          profiles!company_id (organization_name),
           ngo_reviews (rating)
         `)
         .eq('ngo_id', profileData.id)
@@ -57,8 +57,8 @@ export default function NgoAssignmentsPage() {
       if (assignmentsError) throw assignmentsError;
       setAssignments(assignmentsData || []);
 
-    } catch (err) {
-      console.error("Failed to load assignments", err);
+    } catch (err: any) {
+      console.error("Failed to load assignments:", err?.message || err?.details || err);
     } finally {
       setLoading(false);
     }

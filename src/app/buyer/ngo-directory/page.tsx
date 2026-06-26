@@ -70,7 +70,7 @@ export default function NgoDirectoryPage() {
           rating,
           review_text,
           created_at,
-          profiles:company_id(organization_name)
+          profiles!company_id(organization_name)
         `)
         .eq('ngo_profile_id', ngoId)
         .order('created_at', { ascending: false });
@@ -78,8 +78,8 @@ export default function NgoDirectoryPage() {
       if (reviewsError) throw reviewsError;
       setNgoReviews(reviews || []);
 
-    } catch (err) {
-      console.error("Failed to fetch modal data", err);
+    } catch (err: any) {
+      console.error("Failed to fetch modal data:", err?.message || err?.details || err);
     } finally {
       setLoadingModalData(false);
     }
@@ -258,7 +258,18 @@ export default function NgoDirectoryPage() {
                     <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center justify-between">
                       <div>
                         <span className="block text-xs text-gray-500 mb-1">Website</span>
-                        <span className="text-sm font-medium text-blue-600 hover:underline cursor-pointer">{new URL(selectedNgo.website_url).hostname}</span>
+                        <span className="text-sm font-medium text-blue-600 hover:underline cursor-pointer">
+                          {(() => {
+                            try {
+                              const url = selectedNgo.website_url.startsWith("http") 
+                                ? selectedNgo.website_url 
+                                : `https://${selectedNgo.website_url}`;
+                              return new URL(url).hostname;
+                            } catch {
+                              return selectedNgo.website_url;
+                            }
+                          })()}
+                        </span>
                       </div>
                       <ExternalLink className="w-4 h-4 text-gray-400" />
                     </div>

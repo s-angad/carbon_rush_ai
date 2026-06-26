@@ -1,180 +1,138 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { useState } from "react";
-import { TreePine, Plus, MapPin, CheckCircle2, Clock, AlertCircle, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { TreePine, MapPin, CheckCircle2, Clock, AlertCircle, Loader2 } from "lucide-react";
+import Link from "next/link";
 
-const demoProjects = [
-  { id: "PRJ-042", name: "Sundarbans East Restoration", location: "South 24 Parganas, West Bengal", ecosystem: "Mangrove", area: 45, trees: 12500, status: "pending_ngo_review", created: "Mar 15, 2025" },
-  { id: "PRJ-043", name: "Hooghly River Wetland", location: "Howrah, West Bengal", ecosystem: "Wetland", area: 22, trees: 5800, status: "pending_ai_review", created: "May 2, 2025" },
-  { id: "PRJ-038", name: "Digha Coastal Mangrove", location: "East Midnapore, West Bengal", ecosystem: "Mangrove", area: 18, trees: 4200, status: "verified", created: "Jan 10, 2025" },
-  { id: "PRJ-029", name: "Bakkhali Seagrass Zone", location: "South 24 Parganas, West Bengal", ecosystem: "Seagrass", area: 12, trees: 0, status: "rejected", created: "Nov 5, 2024" },
-];
+interface LandListing {
+  id: string;
+  title: string;
+  district: string;
+  state: string;
+  ecosystem_type: string;
+  area_hectares: number;
+  trees_planted: number | null;
+  status: string;
+  estimated_carbon_tons: number | null;
+  created_at: string;
+}
 
-const ecosystemTypes = ["Mangrove", "Wetland", "Seagrass", "Forest", "Saltmarsh"];
 const statusColors: Record<string, { bg: string; text: string; label: string }> = {
-  pending_ai_review: { bg: "bg-sky-50", text: "text-sky-700", label: "AI Review" },
-  pending_ngo_review: { bg: "bg-amber-50", text: "text-amber-700", label: "NGO Review" },
+  listed: { bg: "bg-gray-100", text: "text-gray-700", label: "Available" },
+  booked: { bg: "bg-blue-50", text: "text-blue-700", label: "Booked" },
+  ngo_assigned: { bg: "bg-purple-50", text: "text-purple-700", label: "NGO Assigned" },
+  under_review: { bg: "bg-amber-50", text: "text-amber-700", label: "NGO Review" },
   verified: { bg: "bg-emerald-50", text: "text-emerald-700", label: "Verified" },
   rejected: { bg: "bg-red-50", text: "text-red-700", label: "Rejected" },
+  more_evidence: { bg: "bg-orange-50", text: "text-orange-700", label: "Needs Info" },
 };
 
 export default function GrowerProjectsPage() {
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "", state: "", district: "", lat: "", lng: "", ecosystem: "Mangrove", area: "", trees: "", startDate: "", ngo: "",
-  });
+  const { user } = useAuth();
+  const [projects, setProjects] = useState<LandListing[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Project "${formData.name}" registered successfully! Status: pending_ai_review`);
-    setShowForm(false);
-    setFormData({ name: "", state: "", district: "", lat: "", lng: "", ecosystem: "Mangrove", area: "", trees: "", startDate: "", ngo: "" });
-  };
+  useEffect(() => {
+    if (!user) return;
 
-  const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
-  const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
+    const fetchProjects = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("land_listings")
+          .select("*")
+          .eq("grower_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        setProjects(data || []);
+      } catch (err) {
+        console.error("Error fetching grower projects:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProjects();
+  }, [user]);
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Projects</h1>
-          <p className="text-sm text-gray-500">Register and manage your restoration projects</p>
+          <p className="text-sm text-gray-500">Track and manage your registered restoration projects</p>
         </div>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors">
-          <Plus className="w-4 h-4" />
-          Register New Project
-        </button>
+        <Link 
+          href="/grower/listings"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
+        >
+          Manage Listings & Add New
+        </Link>
       </div>
 
-      {/* Projects List */}
-      <motion.div variants={container} initial="hidden" animate="show" className="space-y-3">
-        {demoProjects.map((project) => {
-          const status = statusColors[project.status];
-          return (
-            <motion.div key={project.id} variants={item}
-              className="p-5 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <TreePine className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                    <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
-                      <MapPin className="w-3 h-3" />
-                      {project.location}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+        </div>
+      ) : projects.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+          <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+            <TreePine className="w-8 h-8 text-emerald-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No projects registered yet</h3>
+          <p className="text-gray-500 max-w-sm mx-auto mb-6">Create a land listing in the Listings section to register your first restoration project.</p>
+          <Link href="/grower/listings" className="px-6 py-2.5 bg-emerald-600 text-white font-medium rounded-xl hover:bg-emerald-700 transition-colors inline-block">
+            Go to Listings
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {projects.map((project) => {
+            const statusInfo = statusColors[project.status] || { bg: "bg-gray-50", text: "text-gray-500", label: project.status };
+            return (
+              <div 
+                key={project.id}
+                className="p-5 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <TreePine className="w-5 h-5 text-emerald-600" />
                     </div>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                      <span>{project.ecosystem}</span>
-                      <span>•</span>
-                      <span>{project.area} ha</span>
-                      {project.trees > 0 && <><span>•</span><span>{project.trees.toLocaleString()} trees</span></>}
-                      <span>•</span>
-                      <span>{project.created}</span>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{project.title}</h3>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
+                        <MapPin className="w-3 h-3" />
+                        {project.district}, {project.state}
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                        <span className="capitalize">{project.ecosystem_type}</span>
+                        <span>•</span>
+                        <span>{project.area_hectares} ha</span>
+                        {project.trees_planted !== null && project.trees_planted > 0 && (
+                          <>
+                            <span>•</span>
+                            <span>{project.trees_planted.toLocaleString()} trees</span>
+                          </>
+                        )}
+                        <span>•</span>
+                        <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text} flex items-center gap-1`}>
-                  {project.status === "verified" && <CheckCircle2 className="w-3 h-3" />}
-                  {(project.status === "pending_ai_review" || project.status === "pending_ngo_review") && <Clock className="w-3 h-3" />}
-                  {project.status === "rejected" && <AlertCircle className="w-3 h-3" />}
-                  {status.label}
-                </span>
-              </div>
-            </motion.div>
-          );
-        })}
-      </motion.div>
-
-      {/* Register New Project Modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setShowForm(false)} />
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="relative bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <button onClick={() => setShowForm(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-              <X className="w-5 h-5" />
-            </button>
-
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Register New Project</h3>
-            <p className="text-sm text-gray-500 mb-4">Submit a restoration project for AI verification</p>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Project Name *</label>
-                <input type="text" required value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  placeholder="e.g., Sundarbans East Restoration"
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
-                  <input type="text" required value={formData.state} onChange={(e) => setFormData({...formData, state: e.target.value})}
-                    placeholder="e.g., West Bengal" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">District *</label>
-                  <input type="text" required value={formData.district} onChange={(e) => setFormData({...formData, district: e.target.value})}
-                    placeholder="e.g., South 24 Parganas" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.bg} ${statusInfo.text} flex items-center gap-1`}>
+                    {project.status === "verified" && <CheckCircle2 className="w-3 h-3" />}
+                    {["listed", "booked", "ngo_assigned", "under_review"].includes(project.status) && <Clock className="w-3 h-3" />}
+                    {project.status === "rejected" && <AlertCircle className="w-3 h-3" />}
+                    {statusInfo.label}
+                  </span>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
-                  <input type="text" value={formData.lat} onChange={(e) => setFormData({...formData, lat: e.target.value})}
-                    placeholder="e.g., 21.9497" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
-                  <input type="text" value={formData.lng} onChange={(e) => setFormData({...formData, lng: e.target.value})}
-                    placeholder="e.g., 88.8977" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ecosystem Type *</label>
-                <select value={formData.ecosystem} onChange={(e) => setFormData({...formData, ecosystem: e.target.value})}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white">
-                  {ecosystemTypes.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Area (hectares) *</label>
-                  <input type="number" required value={formData.area} onChange={(e) => setFormData({...formData, area: e.target.value})}
-                    placeholder="e.g., 45" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Trees Planted</label>
-                  <input type="number" value={formData.trees} onChange={(e) => setFormData({...formData, trees: e.target.value})}
-                    placeholder="e.g., 12500" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                <input type="date" value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value})}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Supporting NGO</label>
-                <input type="text" value={formData.ngo} onChange={(e) => setFormData({...formData, ngo: e.target.value})}
-                  placeholder="e.g., GreenEarth Foundation" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400" />
-              </div>
-
-              <button type="submit"
-                className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors">
-                Register Project
-              </button>
-            </form>
-          </motion.div>
+            );
+          })}
         </div>
       )}
     </div>
